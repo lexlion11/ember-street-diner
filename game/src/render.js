@@ -1,0 +1,896 @@
+// Everything you see. One exported function, one canvas, no assets.
+//
+// The renderer reads the game state and paints it. It never mutates the state
+// and never reaches outside config.js for colours or geometry, so the look of
+// the diner can be re-skinned from one file.
+
+import {
+  PALETTE,
+  LAYOUT,
+  WIDTH,
+  HEIGHT,
+  BIN_COUNT,
+  CONTROLS,
+  binRect,
+  font,
+} from './config.js';
+import { INGREDIENTS, INGREDIENT_ORDER } from './recipes.js';
+import { canServe } from './world.js';
+
+// ------------------------------------------------------------- helpers ----
+
+function roundRect(ctx, x, y, w, h, r) {
+  const radius = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function fillRound(ctx, x, y, w, h, r, color) {
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+function text(ctx, value, x, y, opts = {}) {
+  const {
+    size = 14,
+    weight = 400,
+    color = PALETTE.text,
+    align = 'left',
+    baseline = 'alphabetic',
+    alpha = 1,
+  } = opts;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.font = font(size, weight);
+  ctx.fillStyle = color;
+  ctx.textAlign = align;
+  ctx.textBaseline = baseline;
+  ctx.fillText(String(value), x, y);
+  ctx.restore();
+}
+
+function heart(ctx, x, y, size, filled) {
+  ctx.save();
+  ctx.beginPath();
+  const s = size / 2;
+  ctx.moveTo(x, y + s * 0.75);
+  ctx.bezierCurveTo(x - s * 1.25, y - s * 0.25, x - s * 0.55, y - s * 1.15, x, y - s * 0.4);
+  ctx.bezierCurveTo(x + s * 0.55, y - s * 1.15, x + s * 1.25, y - s * 0.25, x, y + s * 0.75);
+  ctx.closePath();
+  if (filled) {
+    ctx.fillStyle = PALETTE.heart;
+    ctx.fill();
+  } else {
+    ctx.strokeStyle = PALETTE.heart;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function circle(ctx, x, y, r, color) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
+// ------------------------------------------------------ ingredient art ----
+
+// Draws one ingredient centred on (cx, cy) at the given scale. `form` may be
+// 'diced' for the ingredients that can be chopped.
+function drawIngredient(ctx, ing, cx, cy, scale, form = 'whole') {
+  if (!ing) return;
+  const diced = form === 'diced';
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+
+  switch (ing.id) {
+    case 'bun': {
+      ctx.beginPath();
+      ctx.moveTo(-26, 12);
+      ctx.quadraticCurveTo(-26, -20, 0, -20);
+      ctx.quadraticCurveTo(26, -20, 26, 12);
+      ctx.closePath();
+      ctx.fillStyle = ing.color;
+      ctx.fill();
+      ctx.fillStyle = ing.light;
+      ctx.beginPath();
+      ctx.ellipse(-9, -13, 9, 4, -0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = ing.dark;
+      ctx.fillRect(-26, 8, 52, 5);
+      break;
+    }
+    case 'patty': {
+      circle(ctx, 0, 0, 22, ing.dark);
+      circle(ctx, 0, -2, 20, ing.color);
+      ctx.strokeStyle = ing.light;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-12, -8);
+      ctx.lineTo(-4, -12);
+      ctx.moveTo(2, 4);
+      ctx.lineTo(12, 0);
+      ctx.stroke();
+      break;
+    }
+    case 'lettuce': {
+      ctx.fillStyle = ing.color;
+      ctx.beginPath();
+      ctx.moveTo(-28, 4);
+      for (let i = 0; i <= 8; i += 1) {
+        const t = i / 8;
+        const x = -28 + t * 56;
+        const y = 4 + (i % 2 === 0 ? -12 : 6);
+        ctx.quadraticCurveTo(x + 3.5, y - 6, x + 7, 4);
+      }
+      ctx.lineTo(28, 8);
+      ctx.quadraticCurveTo(0, 18, -28, 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = ing.dark;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.strokeStyle = ing.light;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-18, 6);
+      ctx.quadraticCurveTo(0, 12, 18, 6);
+      ctx.stroke();
+      break;
+    }
+    case 'tomato': {
+      circle(ctx, 0, 0, 20, ing.color);
+      circle(ctx, 0, 0, 13, ing.light);
+      circle(ctx, 0, 0, 6, ing.dark);
+      ctx.strokeStyle = ing.color;
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 4; i += 1) {
+        const a = (i / 4) * Math.PI * 2 + 0.4;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * 7, Math.sin(a) * 7);
+        ctx.lineTo(Math.cos(a) * 12, Math.sin(a) * 12);
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'cheese': {
+      ctx.beginPath();
+      ctx.moveTo(-24, -14);
+      ctx.lineTo(24, -14);
+      ctx.lineTo(24, 4);
+      ctx.lineTo(16, 16);
+      ctx.lineTo(8, 6);
+      ctx.lineTo(0, 18);
+      ctx.lineTo(-8, 6);
+      ctx.lineTo(-16, 16);
+      ctx.lineTo(-24, 4);
+      ctx.closePath();
+      ctx.fillStyle = ing.color;
+      ctx.fill();
+      ctx.strokeStyle = ing.dark;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = ing.light;
+      ctx.fillRect(-22, -12, 44, 4);
+      break;
+    }
+    case 'onion': {
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = ing.dark;
+      for (let i = 0; i < 3; i += 1) {
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 20 - i * 6, 14 - i * 4, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = i % 2 === 0 ? ing.color : ing.light;
+        ctx.stroke();
+      }
+      break;
+    }
+    case 'cucumber': {
+      ctx.fillStyle = ing.dark;
+      roundRect(ctx, -20, -12, 40, 24, 8);
+      ctx.fill();
+      ctx.fillStyle = ing.color;
+      roundRect(ctx, -20, -10, 40, 20, 7);
+      ctx.fill();
+      ctx.fillStyle = ing.light;
+      for (let i = 0; i < 3; i += 1) {
+        ctx.beginPath();
+        ctx.ellipse(-10 + i * 10, 0, 3.5, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case 'sauce': {
+      ctx.fillStyle = ing.color;
+      roundRect(ctx, -14, -12, 28, 30, 6);
+      ctx.fill();
+      ctx.fillStyle = ing.dark;
+      roundRect(ctx, -7, -22, 14, 12, 3);
+      ctx.fill();
+      ctx.fillStyle = ing.light;
+      roundRect(ctx, -10, -6, 8, 18, 3);
+      ctx.fill();
+      break;
+    }
+    default: {
+      circle(ctx, 0, 0, 20, ing.color);
+      circle(ctx, 0, 0, 10, ing.light);
+    }
+  }
+
+  if (diced) {
+    ctx.fillStyle = ing.dark;
+    for (let i = 0; i < 4; i += 1) {
+      const dx = -18 + i * 12;
+      const dy = 12 - (i % 2) * 7;
+      roundRect(ctx, dx, dy, 10, 9, 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// ----------------------------------------------------------- backdrop -----
+
+function drawWall(ctx) {
+  const wall = LAYOUT.wall;
+  const grad = ctx.createLinearGradient(0, wall.y, 0, wall.y + wall.h);
+  grad.addColorStop(0, PALETTE.wallTop);
+  grad.addColorStop(0.55, PALETTE.wallMid);
+  grad.addColorStop(1, PALETTE.wallLow);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, wall.y, WIDTH, wall.h);
+
+  // wainscot strip along the bottom of the wall
+  ctx.fillStyle = PALETTE.wainscot;
+  ctx.fillRect(0, wall.y + wall.h - 34, WIDTH, 34);
+  ctx.fillStyle = PALETTE.trim;
+  ctx.fillRect(0, wall.y + wall.h - 38, WIDTH, 4);
+}
+
+function drawWindow(ctx) {
+  const w = 500;
+  const h = 180;
+  const x = (WIDTH - w) / 2;
+  const y = LAYOUT.wall.y + 26;
+
+  ctx.save();
+  roundRect(ctx, x - 10, y - 10, w + 20, h + 20, 12);
+  ctx.fillStyle = PALETTE.woodDark;
+  ctx.fill();
+
+  roundRect(ctx, x, y, w, h, 8);
+  ctx.clip();
+
+  const sky = ctx.createLinearGradient(0, y, 0, y + h);
+  sky.addColorStop(0, PALETTE.skyHigh);
+  sky.addColorStop(0.35, PALETTE.skyMid);
+  sky.addColorStop(0.65, PALETTE.skyLow);
+  sky.addColorStop(1, PALETTE.skyDeep);
+  ctx.fillStyle = sky;
+  ctx.fillRect(x, y, w, h);
+
+  circle(ctx, x + w * 0.68, y + h * 0.56, 30, PALETTE.sun);
+  circle(ctx, x + w * 0.68, y + h * 0.56, 42, 'rgba(255,243,204,0.18)');
+
+  ctx.fillStyle = PALETTE.hillFar;
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x, y + h * 0.68);
+  ctx.quadraticCurveTo(x + w * 0.25, y + h * 0.44, x + w * 0.52, y + h * 0.66);
+  ctx.quadraticCurveTo(x + w * 0.78, y + h * 0.86, x + w, y + h * 0.6);
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = PALETTE.hillNear;
+  ctx.beginPath();
+  ctx.moveTo(x, y + h);
+  ctx.lineTo(x, y + h * 0.84);
+  ctx.quadraticCurveTo(x + w * 0.3, y + h * 0.7, x + w * 0.6, y + h * 0.84);
+  ctx.quadraticCurveTo(x + w * 0.82, y + h * 0.92, x + w, y + h * 0.8);
+  ctx.lineTo(x + w, y + h);
+  ctx.closePath();
+  ctx.fill();
+
+  // mullions
+  ctx.strokeStyle = PALETTE.woodDark;
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(x + w / 2, y);
+  ctx.lineTo(x + w / 2, y + h);
+  ctx.moveTo(x, y + h / 2);
+  ctx.lineTo(x + w, y + h / 2);
+  ctx.stroke();
+
+  ctx.restore();
+
+  // frame
+  roundRect(ctx, x - 10, y - 10, w + 20, h + 20, 12);
+  ctx.strokeStyle = PALETTE.woodEdge;
+  ctx.lineWidth = 4;
+  ctx.stroke();
+}
+
+function drawShelf(ctx) {
+  const y = LAYOUT.wall.y + 12;
+  const x0 = 96;
+  const x1 = WIDTH - 96;
+  ctx.fillStyle = PALETTE.woodRail;
+  ctx.fillRect(x0, y, x1 - x0, 8);
+  ctx.fillStyle = PALETTE.woodDark;
+  ctx.fillRect(x0, y + 8, x1 - x0, 3);
+
+  // jars and a little plant, drawn as simple shapes
+  const jar = (x, w, h, color, lid) => {
+    fillRound(ctx, x, y - h, w, h, 4, color);
+    fillRound(ctx, x - 2, y - h - 6, w + 4, 7, 2, lid);
+  };
+
+  jar(x0 + 30, 22, 34, PALETTE.glass, PALETTE.trim);
+  jar(x0 + 62, 18, 26, PALETTE.skyLow, PALETTE.trim);
+  jar(x0 + 92, 26, 40, PALETTE.cool, PALETTE.trim);
+
+  // plant on the right
+  const px = x1 - 60;
+  fillRound(ctx, px, y - 24, 30, 24, 4, PALETTE.hot);
+  ctx.fillStyle = PALETTE.good;
+  for (let i = 0; i < 5; i += 1) {
+    ctx.beginPath();
+    ctx.ellipse(px + 15 + (i - 2) * 7, y - 30 - (i % 2) * 9, 8, 14, (i - 2) * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  jar(x1 - 160, 20, 30, PALETTE.gold, PALETTE.trim);
+  jar(x1 - 128, 24, 38, PALETTE.hot, PALETTE.trim);
+}
+
+function drawCounter(ctx) {
+  const counter = LAYOUT.counter;
+  ctx.fillStyle = PALETTE.woodTop;
+  ctx.fillRect(0, counter.y, WIDTH, counter.h);
+  ctx.fillStyle = PALETTE.woodEdge;
+  ctx.fillRect(0, counter.y, WIDTH, 10);
+  ctx.fillRect(0, counter.y + counter.h - 12, WIDTH, 12);
+
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.strokeStyle = PALETTE.woodDark;
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 7; i += 1) {
+    const y = counter.y + 26 + i * 24;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.bezierCurveTo(WIDTH * 0.3, y - 5, WIDTH * 0.7, y + 6, WIDTH, y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawBins(ctx, game) {
+  const strip = LAYOUT.binStrip;
+  ctx.fillStyle = PALETTE.woodDark;
+  ctx.fillRect(strip.x - 8, strip.y - 6, strip.w + 16, strip.h + 12);
+  ctx.fillStyle = PALETTE.woodRail;
+  ctx.fillRect(strip.x - 8, strip.y - 10, strip.w + 16, 6);
+
+  for (let i = 0; i < BIN_COUNT; i += 1) {
+    const id = INGREDIENT_ORDER[i];
+    const ing = INGREDIENTS[id];
+    const r = binRect(i);
+
+    fillRound(ctx, r.x, r.y, r.w, r.h, 8, PALETTE.woodEdge);
+    fillRound(ctx, r.x + 4, r.y + 4, r.w - 8, r.h - 8, 6, PALETTE.boardWood);
+    ctx.fillStyle = PALETTE.woodDark;
+    ctx.fillRect(r.x + 4, r.y + r.h - 20, r.w - 8, 4);
+
+    // the ingredient itself, large in the middle of the bin
+    drawIngredient(ctx, ing, r.x + r.w / 2, r.y + 40, 0.92, 'whole');
+
+    // key badge
+    fillRound(ctx, r.x + 8, r.y + r.h - 34, 24, 24, 6, PALETTE.accent);
+    text(ctx, ing.key, r.x + 20, r.y + r.h - 17, {
+      size: 15,
+      weight: 800,
+      color: PALETTE.ink,
+      align: 'center',
+      baseline: 'middle',
+    });
+
+    text(ctx, ing.short, r.x + r.w / 2, r.y + r.h - 2, {
+      size: 11,
+      weight: 700,
+      color: PALETTE.text,
+      align: 'center',
+    });
+
+    // diced tag
+    if (ing.forms.includes('diced')) {
+      const tag = { x: r.x + r.w - 34, y: r.y + r.h - 34, w: 28, h: 28 };
+      fillRound(ctx, tag.x, tag.y, tag.w, tag.h, 6, PALETTE.cool);
+      text(ctx, 'D', tag.x + tag.w / 2, tag.y + tag.h / 2 + 1, {
+        size: 15,
+        weight: 800,
+        color: PALETTE.ink,
+        align: 'center',
+        baseline: 'middle',
+      });
+    }
+  }
+}
+
+// ----------------------------------------------------------- order board --
+
+function drawBoard(ctx, game) {
+  const board = LAYOUT.board;
+  ctx.fillStyle = PALETTE.boardWood;
+  ctx.fillRect(board.x, board.y, board.w, board.h);
+  ctx.fillStyle = PALETTE.woodRail;
+  ctx.fillRect(LAYOUT.rail.x, LAYOUT.rail.y, LAYOUT.rail.w, LAYOUT.rail.h);
+  ctx.fillStyle = PALETTE.woodDark;
+  ctx.fillRect(LAYOUT.rail.x, LAYOUT.rail.y + LAYOUT.rail.h - 3, LAYOUT.rail.w, 3);
+
+  const visible = game.orders.slice(0, 4);
+  const cardW = 268;
+  const gap = 18;
+  const total = visible.length * cardW + Math.max(0, visible.length - 1) * gap;
+  let x = (WIDTH - total) / 2;
+
+  visible.forEach((ticket, index) => {
+    const y = LAYOUT.ticket.y;
+    const h = LAYOUT.ticket.h;
+
+    if (ticket.flash > 0) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(0.5, ticket.flash);
+      fillRound(ctx, x, y, cardW, h, 8, PALETTE.hot);
+      ctx.restore();
+    }
+
+    fillRound(ctx, x, y, cardW, h, 8, PALETTE.paper);
+    ctx.strokeStyle = PALETTE.paperEdge;
+    ctx.lineWidth = 2;
+    roundRect(ctx, x, y, cardW, h, 8);
+    ctx.stroke();
+
+    if (index === game.focused) {
+      ctx.save();
+      ctx.shadowColor = PALETTE.accent;
+      ctx.shadowBlur = 18;
+      roundRect(ctx, x + 1, y + 1, cardW - 2, h - 2, 8);
+      ctx.strokeStyle = PALETTE.accent;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    text(ctx, ticket.name, x + 12, y + 24, { size: 15, weight: 700, color: PALETTE.ink });
+
+    // ingredient short codes, with a badge for diced ones
+    let cx = x + 12;
+    for (const item of ticket.items) {
+      const ing = INGREDIENTS[item.id];
+      const label = ing ? ing.short : item.id.toUpperCase();
+      text(ctx, label, cx, y + 46, { size: 13, weight: 600, color: PALETTE.inkSoft });
+      ctx.save();
+      ctx.font = font(13, 600);
+      const w = ctx.measureText(label).width;
+      ctx.restore();
+      cx += w + 4;
+      if (item.form === 'diced') {
+        fillRound(ctx, cx, y + 34, 14, 14, 3, PALETTE.cool);
+        text(ctx, 'D', cx + 7, y + 41, {
+          size: 10,
+          weight: 800,
+          color: PALETTE.ink,
+          align: 'center',
+          baseline: 'middle',
+        });
+        cx += 18;
+      } else {
+        cx += 6;
+      }
+    }
+
+    if (ticket.twists && ticket.twists.length) {
+      text(ctx, ticket.twists.map((t) => t.label).join(' · '), x + 12, y + 66, {
+        size: 11,
+        weight: 700,
+        color: PALETTE.hot,
+      });
+    }
+
+    // timer bar
+    const barX = x + 12;
+    const barY = y + h - 26;
+    const barW = cardW - 24;
+    const barH = 12;
+    const fraction = Math.max(0, Math.min(1, ticket.timeLeft / ticket.timeMax));
+
+    fillRound(ctx, barX, barY, barW, barH, 6, PALETTE.paperShade);
+    let color = PALETTE.good;
+    if (fraction < 0.5) color = PALETTE.accent;
+    if (fraction < 0.25) color = PALETTE.hot;
+    fillRound(ctx, barX, barY, Math.max(2, barW * fraction), barH, 6, color);
+
+    text(ctx, `${Math.ceil(ticket.timeLeft)}s`, x + cardW - 12, y + 22, {
+      size: 13,
+      weight: 700,
+      color: fraction < 0.25 ? PALETTE.hot : PALETTE.ink,
+      align: 'right',
+    });
+
+    x += cardW + gap;
+  });
+}
+
+// ---------------------------------------------------------------- plate ---
+
+function drawPlate(ctx, game) {
+  const p = LAYOUT.plate;
+
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  circle(ctx, p.x, p.y + 8, p.r, PALETTE.shadow);
+  ctx.restore();
+
+  circle(ctx, p.x, p.y, p.r, PALETTE.paperShade);
+  circle(ctx, p.x, p.y, p.r - 8, PALETTE.paper);
+  ctx.strokeStyle = PALETTE.paperEdge;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, p.r - 4, 0, Math.PI * 2);
+  ctx.stroke();
+
+  if (!game.plate.length) {
+    text(ctx, 'click ingredients to build', p.x, p.y + 4, {
+      size: 13,
+      color: PALETTE.inkSoft,
+      align: 'center',
+      baseline: 'middle',
+    });
+    return;
+  }
+
+  // stack from the bottom of the plate upwards
+  let y = p.y + p.r - 26;
+  game.plate.forEach((item, index) => {
+    const ing = INGREDIENTS[item.id];
+    if (!ing) return;
+    const bandW = Math.min(p.r * 1.35, 120 + index * 4);
+    const bandH = 18;
+
+    if (item.form === 'diced') {
+      for (let c = 0; c < 5; c += 1) {
+        const dx = -bandW / 2 + 12 + c * ((bandW - 24) / 4);
+        const dy = (c % 2) * 5;
+        fillRound(ctx, p.x + dx - 11, y - bandH + dy, 22, 16, 4, ing.color);
+        ctx.fillStyle = ing.dark;
+        ctx.fillRect(p.x + dx - 11, y - bandH + dy + 12, 22, 4);
+      }
+      y -= 16;
+    } else {
+      fillRound(ctx, p.x - bandW / 2, y - bandH, bandW, bandH, 8, ing.color);
+      ctx.fillStyle = ing.dark;
+      ctx.fillRect(p.x - bandW / 2, y - 5, bandW, 5);
+      ctx.fillStyle = ing.light;
+      ctx.fillRect(p.x - bandW / 2 + 6, y - bandH + 3, bandW - 12, 4);
+      y -= bandH - 2;
+    }
+
+    if (item.chop > 0) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, item.chop / 0.3) * 0.85;
+      fillRound(ctx, p.x - bandW / 2, y - 6, bandW, bandH + 6, 8, PALETTE.paper);
+      ctx.restore();
+    }
+  });
+}
+
+// -------------------------------------------------------------- buttons ---
+
+function drawButtons(ctx, game) {
+  const serve = LAYOUT.serveBtn;
+  const ready = canServe(game);
+
+  ctx.save();
+  if (ready) {
+    ctx.shadowColor = PALETTE.good;
+    ctx.shadowBlur = 22;
+  }
+  fillRound(ctx, serve.x, serve.y, serve.w, serve.h, 12, ready ? PALETTE.good : PALETTE.woodEdge);
+  ctx.restore();
+
+  text(ctx, 'SERVE ⏎', serve.x + serve.w / 2, serve.y + serve.h / 2 + 1, {
+    size: 22,
+    weight: 800,
+    color: ready ? PALETTE.ink : PALETTE.textDim,
+    align: 'center',
+    baseline: 'middle',
+  });
+
+  const clear = LAYOUT.clearBtn;
+  fillRound(ctx, clear.x, clear.y, clear.w, clear.h, 8, PALETTE.woodDark);
+  ctx.strokeStyle = PALETTE.woodEdge;
+  ctx.lineWidth = 2;
+  roundRect(ctx, clear.x, clear.y, clear.w, clear.h, 8);
+  ctx.stroke();
+  text(ctx, 'CLEAR ⌫', clear.x + clear.w / 2, clear.y + clear.h / 2, {
+    size: 14,
+    weight: 700,
+    color: PALETTE.text,
+    align: 'center',
+    baseline: 'middle',
+  });
+}
+
+// ----------------------------------------------------------- pass window --
+
+function drawPass(ctx, game) {
+  const pass = LAYOUT.pass;
+  fillRound(ctx, pass.x, pass.y, pass.w, pass.h, 10, PALETTE.woodEdge);
+  fillRound(ctx, pass.x + 8, pass.y + 8, pass.w - 16, pass.h - 16, 6, PALETTE.woodDark);
+  ctx.fillStyle = PALETTE.glass;
+  roundRect(ctx, pass.x + 8, pass.y + 8, pass.w - 16, pass.h - 16, 6);
+  ctx.fill();
+
+  text(ctx, 'THE PASS', pass.x + 16, pass.y + 24, {
+    size: 13,
+    weight: 800,
+    color: PALETTE.accent,
+  });
+
+  game.pass.forEach((dish, i) => {
+    const fade = 1 - Math.max(0, dish.age / dish.life);
+    const x = pass.x + 22 + i * 122;
+    const y = pass.y + 38;
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0.15, fade);
+
+    circle(ctx, x + 34, y + 34, 30, PALETTE.paperShade);
+    circle(ctx, x + 34, y + 34, 26, PALETTE.paper);
+
+    // mini dish
+    dish.items.forEach((item, index) => {
+      const ing = INGREDIENTS[item.id];
+      if (!ing) return;
+      const ly = y + 52 - index * 9;
+      const w = 34 - index * 4;
+      fillRound(ctx, x + 34 - w / 2, ly - 8, w, 9, 4, ing.color);
+      ctx.fillStyle = ing.dark;
+      ctx.fillRect(x + 34 - w / 2, ly - 3, w, 3);
+    });
+
+    text(ctx, dish.name, x + 68, y + 16, { size: 12, weight: 700, color: PALETTE.text });
+    text(ctx, `+$${dish.tip}`, x + 68, y + 34, { size: 12, weight: 700, color: PALETTE.gold });
+    if (dish.perfect) {
+      text(ctx, 'PERFECT!', x + 68, y + 52, { size: 12, weight: 800, color: PALETTE.good });
+    }
+    ctx.restore();
+  });
+}
+
+// -------------------------------------------------------------- the HUD ---
+
+function drawHud(ctx, game) {
+  const hud = LAYOUT.hud;
+  ctx.fillStyle = PALETTE.wallTop;
+  ctx.fillRect(hud.x, hud.y, hud.w, hud.h);
+  ctx.fillStyle = PALETTE.woodRail;
+  ctx.fillRect(hud.x, hud.y + hud.h - 3, hud.w, 3);
+
+  text(ctx, '★', 24, 30, { size: 22, weight: 800, color: PALETTE.gold });
+  text(ctx, game.score, 46, 31, { size: 22, weight: 800, color: PALETTE.gold });
+
+  // hearts
+  for (let i = 0; i < 3; i += 1) {
+    heart(ctx, 170 + i * 26, 24, 22, i < game.lives);
+  }
+
+  text(ctx, `NIGHT ${game.night}`, WIDTH / 2, 31, {
+    size: 20,
+    weight: 800,
+    color: PALETTE.accent,
+    align: 'center',
+  });
+
+  if (game.combo > 1) {
+    text(ctx, `COMBO x${game.combo.toFixed(2)}`, WIDTH - 24, 31, {
+      size: 18,
+      weight: 800,
+      color: PALETTE.good,
+      align: 'right',
+    });
+  } else {
+    text(ctx, `SERVED ${game.served}`, WIDTH - 24, 31, {
+      size: 16,
+      weight: 700,
+      color: PALETTE.textDim,
+      align: 'right',
+    });
+  }
+}
+
+// ------------------------------------------------------------- overlays ---
+
+function drawEvents(ctx, game) {
+  for (const event of game.events) {
+    const alpha = Math.max(0, 1 - event.age / event.life);
+    text(ctx, event.text, event.x, event.y - event.age * 40, {
+      size: 16,
+      weight: 700,
+      color: event.color,
+      align: 'center',
+      alpha,
+    });
+  }
+}
+
+function drawBanner(ctx, game) {
+  const banner = game.banner;
+  if (!banner) return;
+  const alpha = Math.max(0, Math.min(1, banner.life / 0.8));
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = PALETTE.shadow;
+  ctx.fillRect(0, 250, WIDTH, 130);
+  text(ctx, banner.text, WIDTH / 2, 310, {
+    size: 54,
+    weight: 800,
+    color: PALETTE.accent,
+    align: 'center',
+  });
+  if (banner.sub) {
+    text(ctx, banner.sub, WIDTH / 2, 348, {
+      size: 20,
+      weight: 600,
+      color: PALETTE.text,
+      align: 'center',
+    });
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------- the phases ----
+
+function drawTitle(ctx, game) {
+  drawKitchen(ctx, game);
+
+  ctx.fillStyle = 'rgba(20, 10, 16, 0.68)';
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  text(ctx, 'EMBER STREET DINER', WIDTH / 2, 250, {
+    size: 64,
+    weight: 800,
+    color: PALETTE.accent,
+    align: 'center',
+  });
+  text(ctx, 'sunset burgers, made to order', WIDTH / 2, 292, {
+    size: 22,
+    weight: 500,
+    color: PALETTE.textDim,
+    align: 'center',
+  });
+
+  CONTROLS.forEach((line, i) => {
+    text(ctx, line, WIDTH / 2, 360 + i * 30, {
+      size: 16,
+      weight: 500,
+      color: PALETTE.text,
+      align: 'center',
+    });
+  });
+
+  const pulse = 0.5 + 0.5 * Math.sin(game.time * 4);
+  text(ctx, 'PRESS ENTER OR CLICK TO START', WIDTH / 2, 500, {
+    size: 20,
+    weight: 700,
+    color: PALETTE.good,
+    align: 'center',
+    alpha: 0.35 + pulse * 0.65,
+  });
+}
+
+function drawOver(ctx, game) {
+  drawKitchen(ctx, game);
+
+  ctx.fillStyle = 'rgba(20, 10, 16, 0.74)';
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  fillRound(ctx, 240, 150, WIDTH - 480, 420, 16, PALETTE.boardWood);
+  ctx.strokeStyle = PALETTE.accent;
+  ctx.lineWidth = 3;
+  roundRect(ctx, 240, 150, WIDTH - 480, 420, 16);
+  ctx.stroke();
+
+  text(ctx, 'SERVICE CLOSED', WIDTH / 2, 240, {
+    size: 48,
+    weight: 800,
+    color: PALETTE.hot,
+    align: 'center',
+  });
+  text(ctx, `Final Score: ${game.score}`, WIDTH / 2, 306, {
+    size: 28,
+    weight: 700,
+    color: PALETTE.gold,
+    align: 'center',
+  });
+  text(
+    ctx,
+    `Nights survived: ${Math.max(0, game.night - 1)} · Dishes served: ${game.served} · Best combo: x${game.bestCombo.toFixed(2)}`,
+    WIDTH / 2,
+    352,
+    { size: 18, weight: 500, color: PALETTE.text, align: 'center' },
+  );
+
+  const pulse = 0.5 + 0.5 * Math.sin(game.time * 4);
+  text(ctx, 'PRESS ENTER TO TRY AGAIN', WIDTH / 2, 470, {
+    size: 22,
+    weight: 700,
+    color: PALETTE.good,
+    align: 'center',
+    alpha: 0.35 + pulse * 0.65,
+  });
+}
+
+// The kitchen, without any game-specific furniture on top of it.
+function drawKitchen(ctx, game) {
+  drawWall(ctx);
+  drawWindow(ctx);
+  drawShelf(ctx);
+  drawCounter(ctx);
+  drawBins(ctx, game);
+}
+
+// ------------------------------------------------------------- the API ----
+
+export function render(ctx, game) {
+  ctx.save();
+
+  if (game.shake > 0) {
+    const amount = game.shake * 8;
+    ctx.translate((Math.random() * 2 - 1) * amount, (Math.random() * 2 - 1) * amount);
+  }
+
+  if (game.phase === 'title') {
+    drawTitle(ctx, game);
+  } else if (game.phase === 'over') {
+    drawOver(ctx, game);
+  } else {
+    drawHud(ctx, game);
+    drawBoard(ctx, game);
+    drawWall(ctx);
+    drawWindow(ctx);
+    drawShelf(ctx);
+    drawCounter(ctx);
+    drawPlate(ctx, game);
+    drawButtons(ctx, game);
+    drawPass(ctx, game);
+    drawBins(ctx, game);
+    drawEvents(ctx, game);
+    drawBanner(ctx, game);
+  }
+
+  if (game.flash > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, game.flash * 0.3);
+    ctx.fillStyle = PALETTE.paper;
+    ctx.fillRect(0, 0, WIDTH, HEIGHT);
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
