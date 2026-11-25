@@ -39,6 +39,10 @@ export const PALETTE = {
   textDim: '#c9b191',
   glass: 'rgba(255, 226, 180, 0.14)',
   shadow: 'rgba(0, 0, 0, 0.38)',
+  steel: '#8d99a6',
+  steelDark: '#4d5764',
+  steelLight: '#c3ced8',
+  flame: '#ff8a3d',
 };
 
 export const FONT = '"Trebuchet MS", "Segoe UI", system-ui, "DejaVu Sans", sans-serif';

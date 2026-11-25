@@ -87,59 +87,78 @@ function serviceScene(game, night) {
 // to serve. A screenshot that shows all of them at once proves the game is
 // complete, so this scene is built to hold all six at the same time:
 //
-//   - the order board at the top holds four tickets, each with its timer bar
+//   - the order board at the top holds live tickets, each with its timer bar
 //     and its countdown, and the focused one is ringed in gold
 //   - the counter at the bottom holds the eight ingredients in their bins
 //   - the plate in the middle holds a dish half built, partway up
-//   - the pass window at the right holds two finished dishes, ready to serve
+//   - the pass window at the right holds finished dishes, ready to serve
 //
 // The state is built through the same public functions the player uses, so it
 // is a state the game could really be in.
+//
+// Two things this scene has to get right, both learned the hard way:
+//
+//   - the plate has to be filled while the focused ticket is still on the
+//     board. Serving a ticket takes it off the board, so a dish is only put
+//     in the pass window for a ticket that is not the one being built.
+//   - the clock must not be run far enough to end the night. Past that the
+//     phase leaves PLAY and the rules refuse every ingredient, so the plate
+//     stays empty and the screenshot shows an idle game.
 function showcaseScene(game) {
   startGame(game);
-  game.night = 2;
+  // A later night: the board holds up to four tickets at once, so the
+  // screenshot reads as a working order board rather than a quiet one.
+  // The clock only runs a few seconds, so the night is still being cooked
+  // and no ticket is anywhere near expiring.
+  game.night = 5;
   game.score = 1860;
   game.served = 7;
   game.combo = 2.5;
 
-  // Fill the board: let the clock run so the timers have moved and more
-  // tickets have arrived.
+  // Fill the board. The night starts with one ticket and gains one every
+  // couple of seconds, so the clock runs long enough for the board to reach
+  // its cap of four. No ticket is anywhere near expiring: the shortest
+  // clock in play is still over half full when the frame is drawn.
   warmUp(game, 150);
+  if (game.phase !== 'play') {
+    // A night can end inside the warm-up; restart so the scene is a live
+    // service rather than a results screen.
+    startGame(game);
+    game.night = 5;
+    warmUp(game, 120);
+  }
 
   const tickets = game.orders.slice();
   if (tickets.length === 0) return;
 
-  // Put every ticket but the first two on the clock: a full board reads as a
-  // rush, and the timers all sit at different points.
-  for (let i = 2; i < tickets.length; i += 1) {
-    tickets[i].timeLeft = tickets[i].timeMax * (0.72 - (i - 2) * 0.18);
-  }
+  // The dish being cooked: the focused ticket, partway up. It stays on the
+  // board, so its timer is on screen while the half-built dish sits on the
+  // plate below it.
+  buildPartially(game, tickets[0], Math.max(1, Math.ceil(tickets[0].items.length / 2)));
 
-  // Two finished dishes waiting in the pass window, so a plate ready to serve
-  // is on screen next to the one being built.
-  const first = tickets[0];
-  buildAndServe(game, first);
-
-  const second = tickets.find((ticket) => ticket.id !== first.id);
+  // A second ticket built whole and served, so a dish sits in the pass
+  // window ready to go out to the customer.
+  const second = tickets.find((ticket) => ticket.id !== tickets[0].id);
   if (second) {
+    const held = game.plate;
+    game.plate = [];
     buildAndServe(game, second);
+    // Put the half-built dish back: serving cleared the plate.
+    game.plate = held;
   }
 
-  // And one dish caught mid-assembly on the third ticket: the plate in the
-  // middle of the counter, partly stacked.
-  const third = game.orders.find((ticket) => ticket.id !== first.id && ticket.id !== (second ? second.id : -1));
-  if (third) {
-    const index = game.orders.findIndex((item) => item.id === third.id);
+  // Back to the ticket being cooked, and hold the plate where it was.
+  const index = game.orders.findIndex((item) => item.id === tickets[0].id);
+  if (index >= 0) {
     game.focused = index;
-    const items = third.items.slice(0, Math.max(1, Math.ceil(third.items.length / 2)));
-    for (const item of items) {
-      addIngredient(game, item.id, item.form);
-    }
-    // Freeze the chop flash so the shot shows a dish that was just cut.
-    if (game.plate.length) {
-      game.plate[game.plate.length - 1].chop = 0.28;
-    }
   }
+
+  // Give the remaining tickets timers at different points, so the board
+  // reads as a rush rather than a row of identical clocks.
+  game.orders.forEach((ticket, i) => {
+    if (i === 0) return;
+    ticket.timeLeft = ticket.timeMax * (0.68 - Math.min(3, i) * 0.16);
+  });
 }
 
 // Export the scene runner.

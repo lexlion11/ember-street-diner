@@ -15,7 +15,7 @@ import {
   font,
 } from './config.js';
 import { INGREDIENTS, INGREDIENT_ORDER } from './recipes.js';
-import { canServe } from './world.js';
+import { canServe, expectedItem, focusedTicket } from './world.js';
 
 // ------------------------------------------------------------- helpers ----
 
@@ -83,6 +83,18 @@ function circle(ctx, x, y, r, color) {
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
+}
+
+// Shorten a label with an ellipsis if it cannot fit the given width. The
+// caller must have set ctx.font to the font the text will be drawn in, so the
+// measurement matches what lands on the canvas.
+function fitText(ctx, value, maxWidth) {
+  let s = String(value);
+  if (ctx.measureText(s).width <= maxWidth) return s;
+  while (s.length > 1 && ctx.measureText(`${s}…`).width > maxWidth) {
+    s = s.slice(0, -1);
+  }
+  return s.length > 1 ? `${s}…` : s;
 }
 
 // ------------------------------------------------------ ingredient art ----
@@ -325,6 +337,52 @@ function drawWindow(ctx) {
   ctx.stroke();
 }
 
+function drawStove(ctx) {
+  // The kitchen cue: a stove with a lit burner and a pan on it, and an
+  // extractor hood above. Without it the wall read as a counter in a shop.
+  const x = 40;
+  const y = LAYOUT.wall.y + 120;
+  const w = 196;
+  const h = 96;
+
+  // extractor hood
+  fillRound(ctx, x - 6, y - 74, w + 12, 20, 6, PALETTE.steelDark);
+  fillRound(ctx, x + 16, y - 54, w - 32, 12, 4, PALETTE.steel);
+  ctx.fillStyle = PALETTE.steelLight;
+  ctx.fillRect(x + 20, y - 42, w - 40, 3);
+
+  // stove body
+  fillRound(ctx, x, y, w, h, 8, PALETTE.steelDark);
+  fillRound(ctx, x + 6, y + 6, w - 12, h - 12, 6, PALETTE.steel);
+
+  // two burners, one lit
+  const burners = [[x + 52, y + 40, false], [x + 144, y + 40, true]];
+  for (const [bx, by, lit] of burners) {
+    circle(ctx, bx, by, 24, PALETTE.steelLight);
+    circle(ctx, bx, by, 17, PALETTE.steelDark);
+    if (lit) {
+      for (let i = 0; i < 8; i += 1) {
+        const a = (i / 8) * Math.PI * 2;
+        circle(ctx, bx + Math.cos(a) * 12, by + Math.sin(a) * 12, 5, PALETTE.flame);
+      }
+      circle(ctx, bx, by, 6, PALETTE.gold);
+    }
+  }
+
+  // a pan on the lit burner
+  const px = x + 144;
+  const py = y + 40;
+  fillRound(ctx, px - 30, py - 14, 60, 16, 6, PALETTE.steelLight);
+  ctx.fillStyle = PALETTE.steelDark;
+  ctx.fillRect(px - 30, py - 6, 60, 8);
+  fillRound(ctx, px + 26, py - 11, 34, 8, 4, PALETTE.steelDark);
+
+  // knobs
+  for (let i = 0; i < 3; i += 1) {
+    circle(ctx, x + 30 + i * 22, y + h - 14, 7, PALETTE.steelLight);
+  }
+}
+
 function drawShelf(ctx) {
   const y = LAYOUT.wall.y + 12;
   const x0 = 96;
@@ -476,22 +534,43 @@ function drawBoard(ctx, game) {
       ctx.restore();
     }
 
-    text(ctx, ticket.name, x + 12, y + 26, { size: 19, weight: 700, color: PALETTE.ink });
+    // Everything on the card is clipped to it, so a long name or a long
+    // row of ingredient codes can never spill onto the next ticket.
+    ctx.save();
+    roundRect(ctx, x + 2, y + 2, cardW - 4, h - 4, 7);
+    ctx.clip();
 
-    // ingredient short codes, with a badge for diced ones
-    let cx = x + 12;
+    // The name shares its line with the countdown, so it is shortened
+    // rather than allowed to run under it.
+    const timerLabel = `${Math.ceil(ticket.timeLeft)}s`;
+    ctx.font = font(17, 700);
+    const timerW = ctx.measureText(timerLabel).width;
+    ctx.font = font(19, 700);
+    const name = fitText(ctx, ticket.name, cardW - 24 - timerW - 10);
+    text(ctx, name, x + 12, y + 26, { size: 19, weight: 700, color: PALETTE.ink });
+
+    // ingredient short codes, wrapped onto a second row when the ticket is
+    // long, with a badge for diced ones
+    const pad = 12;
+    ctx.font = font(16, 700);
+    let cx = x + pad;
+    let row = 0;
     for (const item of ticket.items) {
       const ing = INGREDIENTS[item.id];
       const label = ing ? ing.short : item.id.toUpperCase();
-      text(ctx, label, cx, y + 50, { size: 16, weight: 700, color: PALETTE.inkSoft });
-      ctx.save();
-      ctx.font = font(16, 700);
       const w = ctx.measureText(label).width;
-      ctx.restore();
+      const diced = item.form === 'diced';
+      const step = w + 5 + (diced ? 22 : 7);
+      if (cx + step > x + cardW - pad && cx > x + pad) {
+        row += 1;
+        cx = x + pad;
+      }
+      const ly = y + 50 + row * 18;
+      text(ctx, label, cx, ly, { size: 16, weight: 700, color: PALETTE.inkSoft });
       cx += w + 5;
-      if (item.form === 'diced') {
-        fillRound(ctx, cx, y + 36, 17, 17, 3, PALETTE.cool);
-        text(ctx, 'D', cx + 8, y + 44, {
+      if (diced) {
+        fillRound(ctx, cx, ly - 13, 17, 17, 3, PALETTE.cool);
+        text(ctx, 'D', cx + 8, ly - 4, {
           size: 12,
           weight: 800,
           color: PALETTE.ink,
@@ -505,7 +584,7 @@ function drawBoard(ctx, game) {
     }
 
     if (ticket.twists && ticket.twists.length) {
-      text(ctx, ticket.twists.map((t) => t.label).join(' · '), x + 12, y + 70, {
+      text(ctx, ticket.twists.map((t) => t.label).join(' · '), x + 12, row > 0 ? y + 82 : y + 70, {
         size: 13,
         weight: 700,
         color: PALETTE.hot,
@@ -514,9 +593,9 @@ function drawBoard(ctx, game) {
 
     // timer bar
     const barX = x + 12;
-    const barY = y + h - 30;
+    const barY = y + h - 22;
     const barW = cardW - 24;
-    const barH = 16;
+    const barH = 14;
     const fraction = Math.max(0, Math.min(1, ticket.timeLeft / ticket.timeMax));
 
     fillRound(ctx, barX, barY, barW, barH, 6, PALETTE.paperShade);
@@ -525,12 +604,14 @@ function drawBoard(ctx, game) {
     if (fraction < 0.25) color = PALETTE.hot;
     fillRound(ctx, barX, barY, Math.max(2, barW * fraction), barH, 6, color);
 
-    text(ctx, `${Math.ceil(ticket.timeLeft)}s`, x + cardW - 12, y + 26, {
+    text(ctx, timerLabel, x + cardW - 12, y + 26, {
       size: 17,
       weight: 700,
       color: fraction < 0.25 ? PALETTE.hot : PALETTE.ink,
       align: 'right',
     });
+
+    ctx.restore();
 
     x += cardW + gap;
   });
@@ -556,7 +637,7 @@ function drawPlate(ctx, game) {
 
   if (!game.plate.length) {
     text(ctx, 'click ingredients to build', p.x, p.y + 4, {
-      size: 13,
+      size: 15,
       color: PALETTE.inkSoft,
       align: 'center',
       baseline: 'middle',
@@ -597,6 +678,45 @@ function drawPlate(ctx, game) {
       ctx.restore();
     }
   });
+
+  // The ingredient the ticket still wants, ghosted above the stack: it shows
+  // the dish is mid-assembly rather than finished.
+  const next = expectedItem(game);
+  if (next) {
+    const ing = INGREDIENTS[next.id];
+    if (ing) {
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      const bandW = Math.min(p.r * 1.2, 108);
+      fillRound(ctx, p.x - bandW / 2, y - 18, bandW, 16, 8, ing.color);
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = 0.75;
+      ctx.setLineDash([7, 6]);
+      ctx.strokeStyle = PALETTE.inkSoft;
+      ctx.lineWidth = 2;
+      roundRect(ctx, p.x - bandW / 2, y - 18, bandW, 16, 8);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // A label under the plate, so what is on it reads at a glance.
+  const dish = focusedTicket(game);
+  if (dish) {
+    text(ctx, 'ASSEMBLING', p.x, p.y + p.r + 26, {
+      size: 15,
+      weight: 800,
+      color: PALETTE.accent,
+      align: 'center',
+    });
+    text(ctx, dish.name, p.x, p.y + p.r + 46, {
+      size: 17,
+      weight: 700,
+      color: PALETTE.text,
+      align: 'center',
+    });
+  }
 }
 
 // -------------------------------------------------------------- buttons ---
@@ -652,40 +772,90 @@ function drawPass(ctx, game) {
     color: PALETTE.accent,
   });
 
+  // The pass window is only so wide: the slots share it, so a window with
+  // three dishes on it gives each a third, and a long name wraps to two
+  // lines under its plate instead of running under the next dish.
+  const slotW = Math.min(190, (pass.w - 32) / Math.max(1, game.pass.length));
+
   game.pass.forEach((dish, i) => {
     const fade = 1 - Math.max(0, dish.age / dish.life);
-    const x = pass.x + 20 + i * 132;
+    const x = pass.x + 16 + i * slotW;
     const y = pass.y + 40;
 
     ctx.save();
     ctx.globalAlpha = Math.max(0.15, fade);
+    // nothing of this dish may spill into the next slot, ever
+    ctx.beginPath();
+    ctx.rect(x, y, slotW, pass.y + pass.h - 8 - y);
+    ctx.clip();
 
     // the plated dish, drawn big enough to read at a glance
-    circle(ctx, x + 40, y + 44, 42, PALETTE.paperShade);
-    circle(ctx, x + 40, y + 44, 37, PALETTE.paper);
+    const cx = x + slotW / 2;
+    const cy = y + 34;
+    const r = 30;
+    circle(ctx, cx, cy, r, PALETTE.paperShade);
+    circle(ctx, cx, cy, r - 5, PALETTE.paper);
     ctx.strokeStyle = PALETTE.paperEdge;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(x + 40, y + 44, 35, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r - 3, 0, Math.PI * 2);
     ctx.stroke();
 
     // mini dish
     dish.items.forEach((item, index) => {
       const ing = INGREDIENTS[item.id];
       if (!ing) return;
-      const ly = y + 74 - index * 13;
-      const w = 54 - index * 6;
-      fillRound(ctx, x + 40 - w / 2, ly - 13, w, 13, 5, ing.color);
+      const ly = cy + 26 - index * 11;
+      const w = 50 - index * 5;
+      fillRound(ctx, cx - w / 2, ly - 12, w, 12, 5, ing.color);
       ctx.fillStyle = ing.dark;
-      ctx.fillRect(x + 40 - w / 2, ly - 5, w, 5);
+      ctx.fillRect(cx - w / 2, ly - 5, w, 5);
       ctx.fillStyle = ing.light;
-      ctx.fillRect(x + 40 - w / 2 + 4, ly - 11, w - 8, 4);
+      ctx.fillRect(cx - w / 2 + 4, ly - 10, w - 8, 4);
     });
 
-    text(ctx, dish.name, x + 92, y + 22, { size: 14, weight: 700, color: PALETTE.text });
-    text(ctx, `+$${dish.tip}`, x + 92, y + 44, { size: 15, weight: 800, color: PALETTE.gold });
+    // the name, wrapped to two lines centred under the plate: a long dish
+    // name cannot run off its slot or under the next one.
+    ctx.font = font(13, 700);
+    const maxLine = slotW - 10;
+    const words = dish.name.split(' ');
+    const lines = [''];
+    for (const word of words) {
+      const last = lines[lines.length - 1];
+      const trial = last ? `${last} ${word}` : word;
+      if (ctx.measureText(trial).width <= maxLine || !last) {
+        lines[lines.length - 1] = trial;
+      } else if (lines.length < 2) {
+        lines.push(word);
+      } else {
+        // past two lines: keep the rest on the second line and let
+        // fitText shorten it, so no word is ever dropped silently
+        lines[1] = `${lines[1]} ${word}`;
+      }
+    }
+    lines.forEach((line, li) => {
+      const fitted = fitText(ctx, line, maxLine);
+      text(ctx, fitted, cx, y + 74 + li * 16, {
+        size: 13,
+        weight: 700,
+        color: PALETTE.text,
+        align: 'center',
+      });
+    });
+
+    text(ctx, `+$${dish.tip}`, cx, y + 110, {
+      size: 14,
+      weight: 800,
+      color: PALETTE.gold,
+      align: 'center',
+    });
     if (dish.perfect) {
-      text(ctx, 'PERFECT!', x + 92, y + 66, { size: 13, weight: 800, color: PALETTE.good });
+      text(ctx, 'PERFECT!', cx, y + 128, {
+        size: 12,
+        weight: 800,
+        color: PALETTE.good,
+        align: 'center',
+      });
     }
     ctx.restore();
   });
@@ -737,8 +907,18 @@ function drawHud(ctx, game) {
 function drawEvents(ctx, game) {
   for (const event of game.events) {
     const alpha = Math.max(0, 1 - event.age / event.life);
-    text(ctx, event.text, event.x, event.y - event.age * 40, {
-      size: 16,
+    const y = event.y - event.age * 40;
+    // A solid plaque behind the text: floating type over the sunset window
+    // was unreadable and looked like stray debug output. The plaque is
+    // measured to the text, so a long event never outruns its background.
+    ctx.font = font(17, 700);
+    const plaqueW = Math.max(120, Math.ceil(ctx.measureText(event.text).width) + 28);
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.78;
+    fillRound(ctx, event.x - plaqueW / 2, y - 22, plaqueW, 34, 8, PALETTE.woodDark);
+    ctx.restore();
+    text(ctx, event.text, event.x, y + 2, {
+      size: 17,
       weight: 700,
       color: event.color,
       align: 'center',
@@ -858,6 +1038,7 @@ function drawOver(ctx, game) {
 function drawKitchen(ctx, game) {
   drawWall(ctx);
   drawWindow(ctx);
+  drawStove(ctx);
   drawShelf(ctx);
   drawCounter(ctx);
   drawBins(ctx, game);
@@ -882,6 +1063,7 @@ export function render(ctx, game) {
     drawBoard(ctx, game);
     drawWall(ctx);
     drawWindow(ctx);
+    drawStove(ctx);
     drawShelf(ctx);
     drawCounter(ctx);
     drawPlate(ctx, game);
