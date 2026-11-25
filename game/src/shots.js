@@ -76,7 +76,9 @@ function serviceScene(game, night) {
   const current = focusedTicket(game);
   if (current) {
     clearPlate(game);
-    buildPartially(game, current, 1);
+    // Build most of the way, so the plate reads as a dish being assembled
+    // rather than an empty plate with one layer on it.
+    buildPartially(game, current, Math.max(2, Math.ceil(current.items.length * 0.6)));
   }
 }
 

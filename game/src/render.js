@@ -464,7 +464,9 @@ function drawPrepBoard(ctx, game) {
   const items = ticket.items.slice(0, 6);
   const cw = (board.w - 24) / Math.max(1, items.length);
 
-  items.forEach((id, i) => {
+  items.forEach((entry, i) => {
+    // a ticket's items are objects: { id, form }
+    const id = typeof entry === 'string' ? entry : entry.id;
     const ing = INGREDIENTS[id];
     if (!ing) return;
     const cx = board.x + 12 + cw * (i + 0.5);
