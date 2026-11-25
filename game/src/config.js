@@ -62,6 +62,7 @@ export const LAYOUT = {
   counter: { y: 416, h: 184 },
   shelf: { y: 600, h: 120 },
   plate: { x: 388, y: 498, r: 100 },
+  prepBoard: { x: 40, y: 462, w: 236, h: 108 },
   serveBtn: { x: 636, y: 440, w: 190, h: 68 },
   clearBtn: { x: 636, y: 522, w: 190, h: 36 },
   pass: { x: 860, y: 408, w: 410, h: 196 },

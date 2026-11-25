@@ -437,6 +437,52 @@ function drawCounter(ctx) {
   ctx.restore();
 }
 
+// The prep board: the ingredients for the order in progress, laid out loose
+// on the counter next to the plate. Without it the only ingredients on screen
+// are the buttons in the bottom strip, and the scene does not read as a
+// kitchen at work.
+function drawPrepBoard(ctx, game) {
+  const board = LAYOUT.prepBoard;
+  const ticket = focusedTicket(game);
+  if (!ticket) return;
+
+  // a pale cutting board on the counter
+  fillRound(ctx, board.x, board.y, board.w, board.h, 8, PALETTE.boardWood);
+  fillRound(ctx, board.x + 5, board.y + 5, board.w - 10, board.h - 10, 6, PALETTE.woodTop);
+  ctx.fillStyle = PALETTE.woodDark;
+  ctx.fillRect(board.x + 12, board.y + board.h - 16, board.w - 24, 3);
+
+  text(ctx, 'PREPPING', board.x + 12, board.y + 20, {
+    size: 13,
+    weight: 800,
+    color: PALETTE.accent,
+  });
+
+  // The ingredients this ticket still wants, loose on the board. The ones the
+  // plate already carries are drawn dimmer, so the board reads as a plan.
+  const stack = game.plate.map((item) => item.id);
+  const items = ticket.items.slice(0, 6);
+  const cw = (board.w - 24) / Math.max(1, items.length);
+
+  items.forEach((id, i) => {
+    const ing = INGREDIENTS[id];
+    if (!ing) return;
+    const cx = board.x + 12 + cw * (i + 0.5);
+    const cy = board.y + 46;
+    const done = stack.includes(id);
+    ctx.save();
+    ctx.globalAlpha = done ? 0.32 : 1;
+    drawIngredient(ctx, ing, cx, cy, 0.62, 'whole');
+    ctx.restore();
+    text(ctx, ing.short, cx, board.y + board.h - 22, {
+      size: 12,
+      weight: 700,
+      color: done ? PALETTE.inkSoft : PALETTE.ink,
+      align: 'center',
+    });
+  });
+}
+
 function drawBins(ctx, game) {
   const strip = LAYOUT.binStrip;
   ctx.fillStyle = PALETTE.woodDark;
@@ -645,23 +691,25 @@ function drawPlate(ctx, game) {
     return;
   }
 
-  // stack from the bottom of the plate upwards
-  let y = p.y + p.r - 26;
+  // stack from the bottom of the plate upwards. The bands are wide and tall
+  // enough that a half-built dish fills a good part of the plate: a small
+  // stack on a big plate reads as an empty plate, not a dish being made.
+  let y = p.y + p.r - 18;
   game.plate.forEach((item, index) => {
     const ing = INGREDIENTS[item.id];
     if (!ing) return;
-    const bandW = Math.min(p.r * 1.35, 120 + index * 4);
-    const bandH = 18;
+    const bandW = Math.min(p.r * 1.6, 150 + index * 5);
+    const bandH = 26;
 
     if (item.form === 'diced') {
-      for (let c = 0; c < 5; c += 1) {
-        const dx = -bandW / 2 + 12 + c * ((bandW - 24) / 4);
+      for (let c = 0; c < 6; c += 1) {
+        const dx = -bandW / 2 + 14 + c * ((bandW - 28) / 5);
         const dy = (c % 2) * 5;
-        fillRound(ctx, p.x + dx - 11, y - bandH + dy, 22, 16, 4, ing.color);
+        fillRound(ctx, p.x + dx - 12, y - bandH + dy, 24, 20, 4, ing.color);
         ctx.fillStyle = ing.dark;
-        ctx.fillRect(p.x + dx - 11, y - bandH + dy + 12, 22, 4);
+        ctx.fillRect(p.x + dx - 12, y - bandH + dy + 15, 24, 5);
       }
-      y -= 16;
+      y -= bandH - 4;
     } else {
       fillRound(ctx, p.x - bandW / 2, y - bandH, bandW, bandH, 8, ing.color);
       ctx.fillStyle = ing.dark;
@@ -701,17 +749,26 @@ function drawPlate(ctx, game) {
     }
   }
 
-  // A label under the plate, so what is on it reads at a glance.
+  // A label above the plate, so what is on it reads at a glance. It has to
+  // sit above the plate: the counter ends where the ingredient bin strip
+  // starts, and the bin strip is drawn after the plate, so anything under
+  // the plate is painted over.
   const dish = focusedTicket(game);
   if (dish) {
-    text(ctx, 'ASSEMBLING', p.x, p.y + p.r + 26, {
-      size: 15,
+    const labelY = p.y - p.r - 34;
+    // a small plaque behind the words, so they read over the busy wall
+    ctx.save();
+    ctx.globalAlpha = 0.72;
+    fillRound(ctx, p.x - 92, labelY - 17, 184, 34, 8, PALETTE.woodDark);
+    ctx.restore();
+    text(ctx, 'ASSEMBLING', p.x, labelY - 1, {
+      size: 14,
       weight: 800,
       color: PALETTE.accent,
       align: 'center',
     });
-    text(ctx, dish.name, p.x, p.y + p.r + 46, {
-      size: 17,
+    text(ctx, dish.name, p.x, labelY + 15, {
+      size: 15,
       weight: 700,
       color: PALETTE.text,
       align: 'center',
@@ -1066,6 +1123,7 @@ export function render(ctx, game) {
     drawStove(ctx);
     drawShelf(ctx);
     drawCounter(ctx);
+    drawPrepBoard(ctx, game);
     drawPlate(ctx, game);
     drawButtons(ctx, game);
     drawPass(ctx, game);
