@@ -1,2 +1,3 @@
 out/
-transcripts.tar.gz
+transcripts*.tar.gz
+__audit.html
