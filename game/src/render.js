@@ -400,28 +400,28 @@ function drawBins(ctx, game) {
     drawIngredient(ctx, ing, r.x + r.w / 2, r.y + 40, 0.92, 'whole');
 
     // key badge
-    fillRound(ctx, r.x + 8, r.y + r.h - 34, 24, 24, 6, PALETTE.accent);
-    text(ctx, ing.key, r.x + 20, r.y + r.h - 17, {
-      size: 15,
+    fillRound(ctx, r.x + 8, r.y + r.h - 36, 26, 26, 6, PALETTE.accent);
+    text(ctx, ing.key, r.x + 21, r.y + r.h - 18, {
+      size: 16,
       weight: 800,
       color: PALETTE.ink,
       align: 'center',
       baseline: 'middle',
     });
 
-    text(ctx, ing.short, r.x + r.w / 2, r.y + r.h - 2, {
-      size: 11,
-      weight: 700,
+    text(ctx, ing.short, r.x + r.w / 2, r.y + r.h - 3, {
+      size: 13,
+      weight: 800,
       color: PALETTE.text,
       align: 'center',
     });
 
     // diced tag
     if (ing.forms.includes('diced')) {
-      const tag = { x: r.x + r.w - 34, y: r.y + r.h - 34, w: 28, h: 28 };
+      const tag = { x: r.x + r.w - 36, y: r.y + r.h - 36, w: 30, h: 30 };
       fillRound(ctx, tag.x, tag.y, tag.w, tag.h, 6, PALETTE.cool);
       text(ctx, 'D', tag.x + tag.w / 2, tag.y + tag.h / 2 + 1, {
-        size: 15,
+        size: 16,
         weight: 800,
         color: PALETTE.ink,
         align: 'center',
@@ -476,37 +476,37 @@ function drawBoard(ctx, game) {
       ctx.restore();
     }
 
-    text(ctx, ticket.name, x + 12, y + 24, { size: 15, weight: 700, color: PALETTE.ink });
+    text(ctx, ticket.name, x + 12, y + 26, { size: 19, weight: 700, color: PALETTE.ink });
 
     // ingredient short codes, with a badge for diced ones
     let cx = x + 12;
     for (const item of ticket.items) {
       const ing = INGREDIENTS[item.id];
       const label = ing ? ing.short : item.id.toUpperCase();
-      text(ctx, label, cx, y + 46, { size: 13, weight: 600, color: PALETTE.inkSoft });
+      text(ctx, label, cx, y + 50, { size: 16, weight: 700, color: PALETTE.inkSoft });
       ctx.save();
-      ctx.font = font(13, 600);
+      ctx.font = font(16, 700);
       const w = ctx.measureText(label).width;
       ctx.restore();
-      cx += w + 4;
+      cx += w + 5;
       if (item.form === 'diced') {
-        fillRound(ctx, cx, y + 34, 14, 14, 3, PALETTE.cool);
-        text(ctx, 'D', cx + 7, y + 41, {
-          size: 10,
+        fillRound(ctx, cx, y + 36, 17, 17, 3, PALETTE.cool);
+        text(ctx, 'D', cx + 8, y + 44, {
+          size: 12,
           weight: 800,
           color: PALETTE.ink,
           align: 'center',
           baseline: 'middle',
         });
-        cx += 18;
+        cx += 22;
       } else {
-        cx += 6;
+        cx += 7;
       }
     }
 
     if (ticket.twists && ticket.twists.length) {
-      text(ctx, ticket.twists.map((t) => t.label).join(' · '), x + 12, y + 66, {
-        size: 11,
+      text(ctx, ticket.twists.map((t) => t.label).join(' · '), x + 12, y + 70, {
+        size: 13,
         weight: 700,
         color: PALETTE.hot,
       });
@@ -514,9 +514,9 @@ function drawBoard(ctx, game) {
 
     // timer bar
     const barX = x + 12;
-    const barY = y + h - 26;
+    const barY = y + h - 30;
     const barW = cardW - 24;
-    const barH = 12;
+    const barH = 16;
     const fraction = Math.max(0, Math.min(1, ticket.timeLeft / ticket.timeMax));
 
     fillRound(ctx, barX, barY, barW, barH, 6, PALETTE.paperShade);
@@ -525,8 +525,8 @@ function drawBoard(ctx, game) {
     if (fraction < 0.25) color = PALETTE.hot;
     fillRound(ctx, barX, barY, Math.max(2, barW * fraction), barH, 6, color);
 
-    text(ctx, `${Math.ceil(ticket.timeLeft)}s`, x + cardW - 12, y + 22, {
-      size: 13,
+    text(ctx, `${Math.ceil(ticket.timeLeft)}s`, x + cardW - 12, y + 26, {
+      size: 17,
       weight: 700,
       color: fraction < 0.25 ? PALETTE.hot : PALETTE.ink,
       align: 'right',
@@ -646,38 +646,46 @@ function drawPass(ctx, game) {
   roundRect(ctx, pass.x + 8, pass.y + 8, pass.w - 16, pass.h - 16, 6);
   ctx.fill();
 
-  text(ctx, 'THE PASS', pass.x + 16, pass.y + 24, {
-    size: 13,
+  text(ctx, 'THE PASS', pass.x + 16, pass.y + 26, {
+    size: 15,
     weight: 800,
     color: PALETTE.accent,
   });
 
   game.pass.forEach((dish, i) => {
     const fade = 1 - Math.max(0, dish.age / dish.life);
-    const x = pass.x + 22 + i * 122;
-    const y = pass.y + 38;
+    const x = pass.x + 20 + i * 132;
+    const y = pass.y + 40;
 
     ctx.save();
     ctx.globalAlpha = Math.max(0.15, fade);
 
-    circle(ctx, x + 34, y + 34, 30, PALETTE.paperShade);
-    circle(ctx, x + 34, y + 34, 26, PALETTE.paper);
+    // the plated dish, drawn big enough to read at a glance
+    circle(ctx, x + 40, y + 44, 42, PALETTE.paperShade);
+    circle(ctx, x + 40, y + 44, 37, PALETTE.paper);
+    ctx.strokeStyle = PALETTE.paperEdge;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + 40, y + 44, 35, 0, Math.PI * 2);
+    ctx.stroke();
 
     // mini dish
     dish.items.forEach((item, index) => {
       const ing = INGREDIENTS[item.id];
       if (!ing) return;
-      const ly = y + 52 - index * 9;
-      const w = 34 - index * 4;
-      fillRound(ctx, x + 34 - w / 2, ly - 8, w, 9, 4, ing.color);
+      const ly = y + 74 - index * 13;
+      const w = 54 - index * 6;
+      fillRound(ctx, x + 40 - w / 2, ly - 13, w, 13, 5, ing.color);
       ctx.fillStyle = ing.dark;
-      ctx.fillRect(x + 34 - w / 2, ly - 3, w, 3);
+      ctx.fillRect(x + 40 - w / 2, ly - 5, w, 5);
+      ctx.fillStyle = ing.light;
+      ctx.fillRect(x + 40 - w / 2 + 4, ly - 11, w - 8, 4);
     });
 
-    text(ctx, dish.name, x + 68, y + 16, { size: 12, weight: 700, color: PALETTE.text });
-    text(ctx, `+$${dish.tip}`, x + 68, y + 34, { size: 12, weight: 700, color: PALETTE.gold });
+    text(ctx, dish.name, x + 92, y + 22, { size: 14, weight: 700, color: PALETTE.text });
+    text(ctx, `+$${dish.tip}`, x + 92, y + 44, { size: 15, weight: 800, color: PALETTE.gold });
     if (dish.perfect) {
-      text(ctx, 'PERFECT!', x + 68, y + 52, { size: 12, weight: 800, color: PALETTE.good });
+      text(ctx, 'PERFECT!', x + 92, y + 66, { size: 13, weight: 800, color: PALETTE.good });
     }
     ctx.restore();
   });
@@ -700,23 +708,23 @@ function drawHud(ctx, game) {
     heart(ctx, 170 + i * 26, 24, 22, i < game.lives);
   }
 
-  text(ctx, `NIGHT ${game.night}`, WIDTH / 2, 31, {
-    size: 20,
+  text(ctx, `NIGHT ${game.night}`, WIDTH / 2, 32, {
+    size: 22,
     weight: 800,
     color: PALETTE.accent,
     align: 'center',
   });
 
   if (game.combo > 1) {
-    text(ctx, `COMBO x${game.combo.toFixed(2)}`, WIDTH - 24, 31, {
-      size: 18,
+    text(ctx, `COMBO x${game.combo.toFixed(2)}`, WIDTH - 24, 32, {
+      size: 19,
       weight: 800,
       color: PALETTE.good,
       align: 'right',
     });
   } else {
-    text(ctx, `SERVED ${game.served}`, WIDTH - 24, 31, {
-      size: 16,
+    text(ctx, `SERVED ${game.served}`, WIDTH - 24, 32, {
+      size: 17,
       weight: 700,
       color: PALETTE.textDim,
       align: 'right',

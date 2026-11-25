@@ -57,10 +57,10 @@ export const LAYOUT = {
   wall: { y: 176, h: 240 },
   counter: { y: 416, h: 184 },
   shelf: { y: 600, h: 120 },
-  plate: { x: 400, y: 500, r: 94 },
-  serveBtn: { x: 640, y: 452, w: 176, h: 62 },
-  clearBtn: { x: 640, y: 526, w: 176, h: 34 },
-  pass: { x: 878, y: 416, w: 392, h: 184 },
+  plate: { x: 388, y: 498, r: 100 },
+  serveBtn: { x: 636, y: 440, w: 190, h: 68 },
+  clearBtn: { x: 636, y: 522, w: 190, h: 36 },
+  pass: { x: 860, y: 408, w: 410, h: 196 },
   binStrip: { x: 18, y: 604, w: WIDTH - 36, h: 108 },
 };
 
